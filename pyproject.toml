@@ -40,7 +40,10 @@ dev = [
 # Server entry point - enables running via: uv run --project . server
 # or: python -m my_real_world_env.server.app
 server = "my_real_world_env.server.app:main"
+baseline = "my_real_world_env.baseline_inference:main"
 inference = "my_real_world_env.inference:main"
+validate-submission = "my_real_world_env.validate_submission:main"
+judge = "my_real_world_env.judging:main"
 
 [tool.setuptools]
 include-package-data = true
