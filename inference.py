@@ -1,53 +1,92 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import sys
-import time
+import textwrap
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, List, Optional
+
+from openai import OpenAI
 
 try:
-    from openai import OpenAI
-except ImportError:
-    OpenAI = None
-
-IMPORT_ERROR: Exception | None = None
-try:
-    from .client import MyRealWorldEnv
-    from .models import SupportTriageAction, SupportTriageObservation
+    from my_real_world_env import MyRealWorldEnv, SupportTriageAction
 except Exception:
-    try:
-        # Support direct execution (python inference.py) where package context is absent.
-        current_dir = Path(__file__).resolve().parent
-        if str(current_dir) not in sys.path:
-            sys.path.insert(0, str(current_dir))
-        from client import MyRealWorldEnv
-        from models import SupportTriageAction, SupportTriageObservation
-    except Exception as exc:
-        MyRealWorldEnv = None
-        SupportTriageAction = None
-        SupportTriageObservation = None
-        IMPORT_ERROR = exc
+    project_root = Path(__file__).resolve().parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from client import MyRealWorldEnv
+    from models import SupportTriageAction
 
 
-SYSTEM_PROMPT = (
-    "You are a customer-support triage agent. "
-    "Return exactly one JSON object with keys action_type, ticket_id, value, note. "
-    "Allowed action_type: view_ticket, set_priority, set_queue, tag_ticket, "
-    "send_response, escalate_ticket, close_ticket, noop."
-)
+IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
+MODEL_NAME = os.getenv("MODEL_NAME", "")
+TASK_NAME = os.getenv("MY_REAL_WORLD_ENV_TASK", "support-triage")
+BENCHMARK = os.getenv("MY_REAL_WORLD_ENV_BENCHMARK", "my_real_world_env")
+MAX_STEPS = int(os.getenv("MAX_STEPS", "15"))
+TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
+MAX_TOKENS = int(os.getenv("MAX_TOKENS", "256"))
+SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.1"))
+
+SYSTEM_PROMPT = textwrap.dedent(
+    """
+    You are a customer-support triage agent.
+    Return exactly one JSON object with keys action_type, ticket_id, value, note.
+    Allowed action_type: view_ticket, set_priority, set_queue, tag_ticket,
+    send_response, escalate_ticket, close_ticket, noop.
+    """
+).strip()
 
 
-def _require_env(name: str) -> str:
-    value = os.getenv(name)
-    if not value:
-        raise RuntimeError(f"Missing required environment variable: {name}")
-    return value
+def log_start(task: str, env: str, model: str) -> None:
+    print(f"[START] task={task} env={env} model={model}", flush=True)
 
 
-def _resolve_model_name(client: Any) -> str:
-    model_name = os.getenv("MODEL_NAME", "").strip()
+def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
+    error_val = error if error else "null"
+    done_val = str(done).lower()
+    print(
+        f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}",
+        flush=True,
+    )
+
+
+def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
+    rewards_str = ",".join(f"{reward:.2f}" for reward in rewards)
+    print(
+        f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}",
+        flush=True,
+    )
+
+
+def _format_action(action: SupportTriageAction) -> str:
+    return json.dumps(action.model_dump(exclude_none=True), separators=(",", ":"), ensure_ascii=False)
+
+
+def _build_prompt(obs: Any, step: int, history: List[str]) -> str:
+    history_block = "\n".join(history[-4:]) if history else "None"
+    return textwrap.dedent(
+        f"""
+        Task objective:
+        {obs.objective}
+
+        Task details:
+        {obs.model_dump_json(indent=2)}
+
+        Step: {step}
+        Previous actions:
+        {history_block}
+
+        Return one JSON object with action_type, ticket_id, value, note.
+        """
+    ).strip()
+
+
+def _resolve_model_name(client: OpenAI) -> str:
+    model_name = MODEL_NAME.strip()
     if model_name:
         return model_name
 
@@ -58,123 +97,102 @@ def _resolve_model_name(client: Any) -> str:
             first = data[0]
             model_id = getattr(first, "id", "")
             if model_id:
-                print(f"resolved_model_name={model_id}", flush=True)
                 return str(model_id)
-    except Exception as exc:
-        print(f"model_discovery_error={exc}", flush=True)
+    except Exception:
+        pass
 
-    fallback = "gpt-4o-mini"
-    print(f"resolved_model_name={fallback}", flush=True)
-    return fallback
+    return "gpt-4o-mini"
 
 
-def choose_action(
-    client: Any,
-    model_name: str,
-    obs: Any,
-    seed: int,
-) -> Any:
-    prompt = (
-        "Current support triage observation as JSON:\n"
-        f"{obs.model_dump_json(indent=2)}\n\n"
-        "Return exactly one valid action JSON object."
-    )
-
+def _choose_action(client: OpenAI, model_name: str, obs: Any, step: int, history: List[str]) -> SupportTriageAction:
     try:
         completion = client.chat.completions.create(
             model=model_name,
-            temperature=0,
-            seed=seed,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": _build_prompt(obs, step, history)},
             ],
         )
-    except Exception as exc:
-        print(f"model_request_error={exc}", flush=True)
-        return SupportTriageAction(action_type="noop")
-
-    content = completion.choices[0].message.content or "{}"
-    try:
+        content = (completion.choices[0].message.content or "{}").strip()
         payload = json.loads(content)
         return SupportTriageAction.model_validate(payload)
     except Exception:
         return SupportTriageAction(action_type="noop")
 
 
-def run_inference() -> Dict[str, Any]:
-    if OpenAI is None:
-        raise RuntimeError("Missing required dependency: openai")
-    if (
-        MyRealWorldEnv is None
-        or SupportTriageAction is None
-        or SupportTriageObservation is None
-    ):
-        raise RuntimeError(f"Missing required local modules/dependencies: {IMPORT_ERROR}")
+async def _open_environment(env_base_url: str):
+    if IMAGE_NAME:
+        return await MyRealWorldEnv.from_docker_image(IMAGE_NAME)
+    return MyRealWorldEnv(base_url=env_base_url)
 
-    api_base_url = _require_env("API_BASE_URL")
-    api_key = _require_env("API_KEY")
-    model_name = ""
 
-    env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
-    seed = int(os.getenv("INFERENCE_SEED", "7"))
-
-    client = OpenAI(base_url=api_base_url, api_key=api_key)
+async def main() -> None:
+    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
     model_name = _resolve_model_name(client)
+    env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
-    scores: List[float] = []
-    started = time.time()
+    env = None
+    rewards: List[float] = []
+    steps_taken = 0
+    score = 0.0
+    success = False
+    history: List[str] = []
+    task_name = TASK_NAME
+    started = False
 
-    with MyRealWorldEnv(base_url=env_base_url).sync() as env:
-        for i in range(3):
-            result = env.reset()
-            obs = result.observation
+    try:
+        env = await _open_environment(env_base_url)
+        result = await env.reset()
+        obs = result.observation
+        task_name = obs.task_id or TASK_NAME
+        log_start(task=task_name, env=BENCHMARK, model=model_name)
+        started = True
 
-            print(f"[START] task={obs.task_id}", flush=True)
+        last_error: Optional[str] = None
+        for step in range(1, MAX_STEPS + 1):
+            if result.done:
+                break
 
-            while not result.done and obs.step_count < obs.max_steps:
-                action = choose_action(client=client, model_name=model_name, obs=obs, seed=seed)
-                result = env.step(action)
+            action = _choose_action(client, model_name, obs, step, history)
+            action_text = _format_action(action)
+
+            try:
+                result = await env.step(action)
                 obs = result.observation
-                print(
-                    f"[STEP] step={obs.step_count} reward={float(result.reward):.6f}",
-                    flush=True,
-                )
+                reward = float(result.reward or 0.0)
+                done = bool(result.done)
+                last_error = None
+            except Exception as exc:
+                reward = 0.0
+                done = False
+                last_error = str(exc)
 
-            score = float(obs.task_score)
-            scores.append(score)
-            print(
-                f"[END] task={obs.task_id} score={score:.3f} "
-                f"steps={obs.step_count}/{obs.max_steps}",
-                flush=True,
-            )
-            print(
-                f"task={i + 1} id={obs.task_id} difficulty={obs.difficulty} "
-                f"score={score:.3f} steps={obs.step_count}/{obs.max_steps}",
-                flush=True,
-            )
+            rewards.append(reward)
+            steps_taken = step
+            log_step(step=step, action=action_text, reward=reward, done=done, error=last_error)
+            history.append(f"Step {step}: {action_text} -> reward {reward:+.2f}")
 
-    elapsed_s = time.time() - started
-    average = sum(scores) / len(scores)
+            if done:
+                break
 
-    print("\nInference summary", flush=True)
-    print(f"scores={','.join(f'{x:.3f}' for x in scores)}", flush=True)
-    print(f"average={average:.3f}", flush=True)
-    print(f"runtime_seconds={elapsed_s:.2f}", flush=True)
-
-    return {
-        "scores": scores,
-        "average": average,
-        "runtime_seconds": elapsed_s,
-        "env_base_url": env_base_url,
-        "model_name": model_name,
-    }
-
-
-def main() -> None:
-    run_inference()
+        score = float(getattr(obs, "task_score", 0.0)) if 'obs' in locals() else 0.0
+        score = min(max(score, 0.0), 1.0)
+        success = bool(score >= SUCCESS_SCORE_THRESHOLD)
+    except Exception:
+        if not started:
+            log_start(task=task_name, env=BENCHMARK, model=model_name)
+            started = True
+    finally:
+        if env is not None:
+            try:
+                await env.close()
+            except Exception:
+                pass
+        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
