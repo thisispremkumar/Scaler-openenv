@@ -124,7 +124,7 @@ Test via OpenEnv client:
 ```python
 from my_real_world_env import MyRealWorldEnv, SupportTriageAction
 
-with MyRealWorldEnv(base_url="http://localhost:8000") as env:
+with MyRealWorldEnv(base_url="http://localhost:8000").sync() as env:
     obs = env.reset().observation
     print(obs.task_id, obs.objective)
     result = env.step(SupportTriageAction(action_type="noop"))
@@ -146,7 +146,7 @@ Run:
 
 ```bash
 set API_BASE_URL=https://router.huggingface.co/v1
-set MODEL_NAME=nvidia/llama-3.1-nemotron-70b-instruct
+set MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
 set HF_TOKEN=your_token_here
 set ENV_BASE_URL=http://localhost:8000
 python -m my_real_world_env.inference

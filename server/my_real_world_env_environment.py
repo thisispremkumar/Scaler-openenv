@@ -101,8 +101,8 @@ class MyRealWorldEnvironment(Environment):
         if self._done:
             return self._build_observation(
                 reward=SupportTriageReward(
-                    total=-0.2,
-                    safety=-0.2,
+                    total=0.0,
+                    safety=0.0,
                 ),
                 feedback="Episode already completed. Reset to start a new task.",
             )
@@ -299,8 +299,6 @@ class MyRealWorldEnvironment(Environment):
                 if int(ticket.get("urgency", 1)) <= 2:
                     reward.safety -= 0.05
 
-        reward.total = round(
-            reward.progress + reward.efficiency + reward.safety + reward.completion_bonus,
-            4,
-        )
+        raw_total = reward.progress + reward.efficiency + reward.safety + reward.completion_bonus
+        reward.total = round(max(0.0, min(1.0, raw_total)), 4)
         return reward

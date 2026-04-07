@@ -2,13 +2,33 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
-from .client import MyRealWorldEnv
-from .models import SupportTriageAction, SupportTriageObservation
+IMPORT_ERROR: Exception | None = None
+try:
+    from .client import MyRealWorldEnv
+    from .models import SupportTriageAction, SupportTriageObservation
+except Exception:
+    try:
+        # Support direct execution (python inference.py) where package context is absent.
+        current_dir = Path(__file__).resolve().parent
+        if str(current_dir) not in sys.path:
+            sys.path.insert(0, str(current_dir))
+        from client import MyRealWorldEnv
+        from models import SupportTriageAction, SupportTriageObservation
+    except Exception as exc:
+        MyRealWorldEnv = None
+        SupportTriageAction = None
+        SupportTriageObservation = None
+        IMPORT_ERROR = exc
 
 
 SYSTEM_PROMPT = (
@@ -38,16 +58,20 @@ def choose_action(
         "Return exactly one valid action JSON object."
     )
 
-    completion = client.chat.completions.create(
-        model=model_name,
-        temperature=0,
-        seed=seed,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-    )
+    try:
+        completion = client.chat.completions.create(
+            model=model_name,
+            temperature=0,
+            seed=seed,
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        )
+    except Exception as exc:
+        print(f"model_request_error={exc}")
+        return SupportTriageAction(action_type="noop")
 
     content = completion.choices[0].message.content or "{}"
     try:
@@ -58,6 +82,15 @@ def choose_action(
 
 
 def run_inference() -> Dict[str, Any]:
+    if OpenAI is None:
+        raise RuntimeError("Missing required dependency: openai")
+    if (
+        MyRealWorldEnv is None
+        or SupportTriageAction is None
+        or SupportTriageObservation is None
+    ):
+        raise RuntimeError(f"Missing required local modules/dependencies: {IMPORT_ERROR}")
+
     api_base_url = _require_env("API_BASE_URL")
     model_name = _require_env("MODEL_NAME")
     hf_token = _require_env("HF_TOKEN")
@@ -70,7 +103,7 @@ def run_inference() -> Dict[str, Any]:
     scores: List[float] = []
     started = time.time()
 
-    with MyRealWorldEnv(base_url=env_base_url) as env:
+    with MyRealWorldEnv(base_url=env_base_url).sync() as env:
         for i in range(3):
             result = env.reset()
             obs = result.observation
@@ -105,7 +138,11 @@ def run_inference() -> Dict[str, Any]:
 
 
 def main() -> None:
-    run_inference()
+    try:
+        run_inference()
+    except Exception as exc:
+        # Keep failures explicit in logs without crashing the process unexpectedly.
+        print(f"inference_error={exc}")
 
 
 if __name__ == "__main__":
