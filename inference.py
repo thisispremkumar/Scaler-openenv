@@ -47,11 +47,11 @@ def _require_env(name: str) -> str:
 
 
 def choose_action(
-    client: OpenAI,
+    client: Any,
     model_name: str,
-    obs: SupportTriageObservation,
+    obs: Any,
     seed: int,
-) -> SupportTriageAction:
+) -> Any:
     prompt = (
         "Current support triage observation as JSON:\n"
         f"{obs.model_dump_json(indent=2)}\n\n"
@@ -70,7 +70,7 @@ def choose_action(
             ],
         )
     except Exception as exc:
-        print(f"model_request_error={exc}")
+        print(f"model_request_error={exc}", flush=True)
         return SupportTriageAction(action_type="noop")
 
     content = completion.choices[0].message.content or "{}"
@@ -108,25 +108,37 @@ def run_inference() -> Dict[str, Any]:
             result = env.reset()
             obs = result.observation
 
+            print(f"[START] task={obs.task_id}", flush=True)
+
             while not result.done and obs.step_count < obs.max_steps:
                 action = choose_action(client=client, model_name=model_name, obs=obs, seed=seed)
                 result = env.step(action)
                 obs = result.observation
+                print(
+                    f"[STEP] step={obs.step_count} reward={float(result.reward):.6f}",
+                    flush=True,
+                )
 
             score = float(obs.task_score)
             scores.append(score)
             print(
+                f"[END] task={obs.task_id} score={score:.3f} "
+                f"steps={obs.step_count}/{obs.max_steps}",
+                flush=True,
+            )
+            print(
                 f"task={i + 1} id={obs.task_id} difficulty={obs.difficulty} "
-                f"score={score:.3f} steps={obs.step_count}/{obs.max_steps}"
+                f"score={score:.3f} steps={obs.step_count}/{obs.max_steps}",
+                flush=True,
             )
 
     elapsed_s = time.time() - started
     average = sum(scores) / len(scores)
 
-    print("\nInference summary")
-    print(f"scores={','.join(f'{x:.3f}' for x in scores)}")
-    print(f"average={average:.3f}")
-    print(f"runtime_seconds={elapsed_s:.2f}")
+    print("\nInference summary", flush=True)
+    print(f"scores={','.join(f'{x:.3f}' for x in scores)}", flush=True)
+    print(f"average={average:.3f}", flush=True)
+    print(f"runtime_seconds={elapsed_s:.2f}", flush=True)
 
     return {
         "scores": scores,
@@ -142,7 +154,7 @@ def main() -> None:
         run_inference()
     except Exception as exc:
         # Keep failures explicit in logs without crashing the process unexpectedly.
-        print(f"inference_error={exc}")
+        print(f"inference_error={exc}", flush=True)
 
 
 if __name__ == "__main__":
