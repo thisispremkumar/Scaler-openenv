@@ -1,6 +1,107 @@
 from __future__ import annotations
 
-from .judging import main
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _package_module_name() -> str:
+    # setuptools maps package name `my_real_world_env` to this folder.
+    return "my_real_world_env"
+
+
+def _run_inference_check() -> Dict[str, Any]:
+    root = _project_root()
+    module_name = f"{_package_module_name()}.inference"
+
+    # Keep ENV_BASE_URL fallback predictable for local validation.
+    env = os.environ.copy()
+    env.setdefault("ENV_BASE_URL", "http://localhost:8000")
+
+    proc = subprocess.run(
+        [sys.executable, "-m", module_name],
+        cwd=str(root),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+
+    stdout = proc.stdout or ""
+    stderr = proc.stderr or ""
+
+    has_start = "[START]" in stdout
+    has_step = "[STEP]" in stdout
+    has_end = "[END]" in stdout
+
+    passed = proc.returncode == 0 and has_start and has_step and has_end
+
+    return {
+        "name": "inference_structured_output",
+        "passed": passed,
+        "returncode": proc.returncode,
+        "has_start": has_start,
+        "has_step": has_step,
+        "has_end": has_end,
+        "stdout_preview": stdout[:4000],
+        "stderr_preview": stderr[:2000],
+    }
+
+
+def _write_reports(report: Dict[str, Any]) -> None:
+    out_dir = _project_root() / "artifacts" / "submission"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    json_path = out_dir / "pre_submission_report.json"
+    md_path = out_dir / "PRE_SUBMISSION_REPORT.md"
+
+    json_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    checks = report["checks"]
+    lines = [
+        "# Pre Submission Report",
+        "",
+        f"generated_at_utc={report['generated_at_utc']}",
+        f"overall_passed={report['overall_passed']}",
+        "",
+        "## Checks",
+    ]
+    for c in checks:
+        lines.append(f"- {c['name']}: {'PASS' if c['passed'] else 'FAIL'}")
+        lines.append(
+            f"  returncode={c['returncode']} has_start={c['has_start']} has_step={c['has_step']} has_end={c['has_end']}"
+        )
+
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def main() -> None:
+    check = _run_inference_check()
+    report = {
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "overall_passed": bool(check["passed"]),
+        "checks": [check],
+    }
+
+    _write_reports(report)
+
+    print(
+        "validate_submission: "
+        f"{'PASS' if report['overall_passed'] else 'FAIL'} "
+        f"(start={check['has_start']} step={check['has_step']} end={check['has_end']})",
+        flush=True,
+    )
+
+    if not report["overall_passed"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
