@@ -52,9 +52,6 @@ def choose_action(
     obs: Any,
     seed: int,
 ) -> Any:
-    if client is None or not model_name:
-        return SupportTriageAction(action_type="noop")
-
     prompt = (
         "Current support triage observation as JSON:\n"
         f"{obs.model_dump_json(indent=2)}\n\n"
@@ -85,6 +82,8 @@ def choose_action(
 
 
 def run_inference() -> Dict[str, Any]:
+    if OpenAI is None:
+        raise RuntimeError("Missing required dependency: openai")
     if (
         MyRealWorldEnv is None
         or SupportTriageAction is None
@@ -92,16 +91,14 @@ def run_inference() -> Dict[str, Any]:
     ):
         raise RuntimeError(f"Missing required local modules/dependencies: {IMPORT_ERROR}")
 
-    api_base_url = os.getenv("API_BASE_URL", "")
-    model_name = os.getenv("MODEL_NAME", "")
-    hf_token = os.getenv("HF_TOKEN", "")
+    api_base_url = _require_env("API_BASE_URL")
+    api_key = _require_env("API_KEY")
+    model_name = _require_env("MODEL_NAME")
 
     env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
     seed = int(os.getenv("INFERENCE_SEED", "7"))
 
-    client = None
-    if OpenAI is not None and api_base_url and model_name and hf_token:
-        client = OpenAI(base_url=api_base_url, api_key=hf_token)
+    client = OpenAI(base_url=api_base_url, api_key=api_key)
 
     scores: List[float] = []
     started = time.time()
