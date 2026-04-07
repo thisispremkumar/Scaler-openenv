@@ -150,14 +150,7 @@ def run_inference() -> Dict[str, Any]:
 
 
 def main() -> None:
-    try:
-        run_inference()
-    except Exception as exc:
-        # Emit a minimal structured trajectory so validators can still parse stdout.
-        print("[START] task=inference-bootstrap", flush=True)
-        print("[STEP] step=0 reward=0.0", flush=True)
-        print("[END] task=inference-bootstrap score=0.0 steps=0", flush=True)
-        print(f"inference_error={exc}", flush=True)
+    run_inference()
 
 
 if __name__ == "__main__":
