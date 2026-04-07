@@ -46,6 +46,28 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _resolve_model_name(client: Any) -> str:
+    model_name = os.getenv("MODEL_NAME", "").strip()
+    if model_name:
+        return model_name
+
+    try:
+        models = client.models.list()
+        data = getattr(models, "data", None) or []
+        if data:
+            first = data[0]
+            model_id = getattr(first, "id", "")
+            if model_id:
+                print(f"resolved_model_name={model_id}", flush=True)
+                return str(model_id)
+    except Exception as exc:
+        print(f"model_discovery_error={exc}", flush=True)
+
+    fallback = "gpt-4o-mini"
+    print(f"resolved_model_name={fallback}", flush=True)
+    return fallback
+
+
 def choose_action(
     client: Any,
     model_name: str,
@@ -93,12 +115,13 @@ def run_inference() -> Dict[str, Any]:
 
     api_base_url = _require_env("API_BASE_URL")
     api_key = _require_env("API_KEY")
-    model_name = _require_env("MODEL_NAME")
+    model_name = ""
 
     env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
     seed = int(os.getenv("INFERENCE_SEED", "7"))
 
     client = OpenAI(base_url=api_base_url, api_key=api_key)
+    model_name = _resolve_model_name(client)
 
     scores: List[float] = []
     started = time.time()
