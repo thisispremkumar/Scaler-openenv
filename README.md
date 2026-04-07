@@ -93,6 +93,46 @@ Three tasks are included and auto-rotated by `reset()`:
 - Requires coordinated routing, security escalation, and safe duplicate closure
 - Deterministic weighted grader returns `[0.0, 1.0]`
 
+## Evaluation Criteria
+
+The graders are deterministic and score the final ticket state against task-specific parameters. Each matched parameter contributes its listed weight, and the final score is clamped to `[0.0, 1.0]`.
+
+### Easy task: VIP Refund Request
+
+| Parameter | Weight | Description |
+| --- | ---: | --- |
+| `priority=urgent` | 0.35 | The VIP billing ticket must be prioritized as urgent. |
+| `assigned_queue=billing` | 0.25 | The ticket must be routed to the billing queue. |
+| `response_template=refund_ack` | 0.25 | The refund acknowledgement template must be sent. |
+| `status=pending` | 0.15 | The ticket must remain pending for back-office processing. |
+
+### Medium task: Mixed Inbox During Incident
+
+| Parameter | Weight | Description |
+| --- | ---: | --- |
+| `priority=urgent` on `M-2102` | 0.20 | The active outage ticket must be marked urgent. |
+| `assigned_queue=technical_incident` on `M-2102` | 0.20 | The outage ticket must be routed to incident handling. |
+| `escalated=true` on `M-2102` | 0.20 | The outage ticket must be escalated. |
+| `response_template=password_reset` on `M-2101` | 0.15 | The account access ticket must receive the password reset response. |
+| `priority=normal` on `M-2101` | 0.10 | The account access ticket must not be over-prioritized. |
+| `status=closed, resolution_code=spam` on `M-2103` | 0.15 | The spam ticket must be safely closed as spam. |
+
+### Hard task: High-Pressure Multi-Ticket Triage
+
+| Parameter | Weight | Description |
+| --- | ---: | --- |
+| `priority=urgent` on `H-3001` | 0.15 | The account takeover ticket must be treated as urgent. |
+| `assigned_queue=security` on `H-3001` | 0.15 | The account takeover ticket must be routed to security. |
+| `escalated=true` on `H-3001` | 0.20 | The account takeover ticket must be escalated. |
+| `priority=high` on `H-3002` | 0.10 | The shipping incident should be set to high priority. |
+| `assigned_queue=logistics` on `H-3002` | 0.10 | The shipping incident must be routed to logistics. |
+| `response_template=shipping_delay` on `H-3002` | 0.10 | The shipping delay response template must be sent. |
+| `assigned_queue=billing` on `H-3003` | 0.05 | The invoice request must be routed to billing. |
+| `response_template=invoice_copy` on `H-3003` | 0.05 | The invoice copy response template must be sent. |
+| `status=closed, resolution_code=duplicate` on `H-3005` | 0.10 | The duplicate ticket must be safely closed as a duplicate. |
+
+The submitted inference flow is designed to satisfy these criteria by driving the environment to the weighted target state for each task and by emitting the required structured stdout blocks during execution.
+
 ## Reward Function
 
 Implemented in [server/my_real_world_env_environment.py](server/my_real_world_env_environment.py).
