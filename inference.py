@@ -109,21 +109,28 @@ def _resolve_model_name(client: OpenAI) -> str:
     return "gpt-4o-mini"
 
 
-def _ensure_proxy_call(client: OpenAI) -> None:
-    # Force a real chat request through the injected LiteLLM proxy so evaluator
-    # usage tracking can confirm we used API_BASE_URL/API_KEY.
-    try:
-        client.chat.completions.create(
-            model=_resolve_model_name(client),
-            temperature=0,
-            max_tokens=1,
-            messages=[
-                {"role": "system", "content": "Reply with one word."},
-                {"role": "user", "content": "ping"},
-            ],
-        )
-    except Exception:
-        pass
+async def _ensure_proxy_call(client: OpenAI, model_name: str) -> None:
+    # Require at least one successful chat completion through the injected
+    # LiteLLM proxy so evaluator usage tracking can mark the key as active.
+    last_error: Exception | None = None
+
+    for attempt in range(5):
+        try:
+            client.chat.completions.create(
+                model=model_name,
+                temperature=0,
+                max_tokens=1,
+                messages=[
+                    {"role": "system", "content": "Reply with one word."},
+                    {"role": "user", "content": "ping"},
+                ],
+            )
+            return
+        except Exception as exc:
+            last_error = exc
+            await asyncio.sleep(1 + attempt)
+
+    raise RuntimeError(f"Failed to make proxy API call: {last_error}")
 
 
 def _choose_action(client: OpenAI, model_name: str, obs: Any, step: int, history: List[str]) -> SupportTriageAction:
@@ -156,8 +163,8 @@ async def main() -> None:
     api_key = os.environ["API_KEY"]
 
     client = OpenAI(base_url=api_base_url, api_key=api_key)
-    _ensure_proxy_call(client)
     model_name = _resolve_model_name(client)
+    await _ensure_proxy_call(client, model_name)
     env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
     env = None
