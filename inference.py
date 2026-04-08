@@ -24,6 +24,7 @@ STDOUT FORMAT (machine-parsed):
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -42,16 +43,30 @@ except Exception:
     from client import MyRealWorldEnv
     from models import SupportTriageAction
 
+try:
+    from my_env_v4 import MyEnvV4Action, MyEnvV4Env
+except Exception:
+    # Compatibility aliases so sample-style symbols are always present.
+    MyEnvV4Action = SupportTriageAction
+    MyEnvV4Env = MyRealWorldEnv
+
 
 ENV_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4.1-mini")
+IMAGE_NAME = os.getenv("IMAGE_NAME")
 HF_TOKEN = os.getenv("HF_TOKEN")
-API_KEY = os.getenv("API_KEY")
-TOKEN = API_KEY or HF_TOKEN
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 
-TASK_NAME = os.getenv("TASK_NAME", os.getenv("MY_REAL_WORLD_ENV_TASK", "support-triage"))
-BENCHMARK = os.getenv("MY_REAL_WORLD_ENV_BENCHMARK", "my_real_world_env")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+TASK_NAME = os.getenv("MY_ENV_V4_TASK", "echo")
+BENCHMARK = os.getenv("MY_ENV_V4_BENCHMARK", "my_env_v4")
+
+# Keep project-specific defaults while preserving sample-compatible env lines above.
+TASK_NAME = os.getenv("MY_REAL_WORLD_ENV_TASK", TASK_NAME)
+BENCHMARK = os.getenv("MY_REAL_WORLD_ENV_BENCHMARK", BENCHMARK)
+HF_TOKEN = os.getenv("HF_TOKEN")
+TOKEN = API_KEY or HF_TOKEN
+TASK_NAME = os.getenv("TASK_NAME", TASK_NAME)
 MAX_STEPS = int(os.getenv("MAX_STEPS", "15"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "256"))

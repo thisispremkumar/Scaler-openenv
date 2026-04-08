@@ -45,6 +45,11 @@ VALID_RESPONSE_TEMPLATES = {
 VALID_RESOLUTION_CODES = {"resolved", "spam", "duplicate", "abuse"}
 
 
+def _strict_unit_interval(value: float) -> float:
+    """Clamp score to the strict open interval (0, 1) for evaluator compatibility."""
+    return min(0.99, max(0.01, float(value)))
+
+
 class MyRealWorldEnvironment(Environment):
     """Customer support triage simulation with deterministic tasks and graders."""
 
@@ -144,6 +149,7 @@ class MyRealWorldEnvironment(Environment):
         feedback: str,
     ) -> MyRealWorldObservation:
         task_score = self._task.grader(self._tickets)
+        reported_score = _strict_unit_interval(task_score)
         tickets = [
             TicketSnapshot(
                 ticket_id=str(t["ticket_id"]),
@@ -175,8 +181,8 @@ class MyRealWorldEnvironment(Environment):
             focused_ticket_id=self._focused_ticket_id,
             step_count=self._state.step_count,
             max_steps=self._task.max_steps,
-            progress_score=round(task_score, 4),
-            task_score=round(task_score, 4),
+            progress_score=round(reported_score, 4),
+            task_score=round(reported_score, 4),
             last_action_feedback=feedback,
             reward_breakdown=reward,
         )
