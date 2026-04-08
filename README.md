@@ -171,28 +171,29 @@ with MyRealWorldEnv(base_url="http://localhost:8000").sync() as env:
     print(result.reward, result.done)
 ```
 
-## Baseline Inference (OpenAI Client, Required Format)
+## Baseline Inference (OpenAI-Compatible Providers)
 
 Mandatory inference file: [inference.py](inference.py)
 
 Before running inference, set the required variables:
-- `API_BASE_URL`: LLM API endpoint (for example router URL)
+- `API_BASE_URL`: OpenAI-compatible LLM endpoint
 - `MODEL_NAME`: model identifier for inference
-- `HF_TOKEN`: Hugging Face or compatible API token
+- `HF_TOKEN`: provider API key
+- Optional: `API_KEY` as an alias for `HF_TOKEN`
 - Optional: `ENV_BASE_URL` (default `http://localhost:8000`)
 - Optional: `INFERENCE_SEED` (default `7`)
 
 Run:
 
 ```bash
-set API_BASE_URL=https://router.huggingface.co/v1
-set MODEL_NAME=meta-llama/Llama-3.1-8B-Instruct
-set HF_TOKEN=your_token_here
+set API_BASE_URL=https://api.groq.com/openai/v1
+set MODEL_NAME=llama-3.3-70b-versatile
+set HF_TOKEN=your_groq_key_here
 set ENV_BASE_URL=http://localhost:8000
-python -m my_real_world_env.inference
+python inference.py
 ```
 
-The script evaluates all 3 tasks and prints per-task score, average score, and runtime.
+The script uses the standard `openai` Python client against any OpenAI-compatible provider, so LiteLLM is optional rather than required.
 
 ### Reference Baseline Format
 
@@ -244,7 +245,7 @@ Or manually push to a Docker Space repository. The container listens on port `78
 Run the complete validator before submission:
 
 ```bash
-python -m my_real_world_env.validate_submission
+python validate_submission.py
 ```
 
 It checks:

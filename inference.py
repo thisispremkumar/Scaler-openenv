@@ -5,14 +5,14 @@ Runs one full episode against the support triage environment using an LLM
 to decide triage actions. Prints structured logs consumed by the evaluator.
 
 Required environment variables:
-    API_BASE_URL -- LiteLLM proxy base URL injected by evaluator
-    API_KEY      -- LiteLLM proxy key injected by evaluator
+    HF_TOKEN     -- Provider API key
 
 Required-with-default environment variables:
     API_BASE_URL -- OpenAI-compatible endpoint
     MODEL_NAME   -- Preferred model identifier
 
 Optional environment variables:
+    LOCAL_IMAGE_NAME -- Local Docker image name when using from_docker_image()
     ENV_BASE_URL -- Environment server URL (default: http://localhost:8000)
     TASK_NAME    -- Task label for [START]
 
@@ -25,7 +25,6 @@ STDOUT FORMAT (machine-parsed):
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import os
 import sys
@@ -33,16 +32,50 @@ import textwrap
 from pathlib import Path
 from typing import Any, List, Optional
 
-from openai import OpenAI
+try:
+    from openai import OpenAI
+except Exception:
+    OpenAI = Any  # type: ignore[misc,assignment]
+
+IMPORT_ERROR: Exception | None = None
 
 try:
     from my_real_world_env import MyRealWorldEnv, SupportTriageAction
 except Exception:
-    project_root = Path(__file__).resolve().parent
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
-    from client import MyRealWorldEnv
-    from models import SupportTriageAction
+    try:
+        project_root = Path(__file__).resolve().parent
+        if str(project_root) not in sys.path:
+            sys.path.insert(0, str(project_root))
+        from client import MyRealWorldEnv
+        from models import SupportTriageAction
+    except Exception as exc:
+        IMPORT_ERROR = exc
+
+        class SupportTriageAction:  # type: ignore[no-redef]
+            def __init__(
+                self,
+                action_type: str,
+                ticket_id: Optional[str] = None,
+                value: Optional[str] = None,
+                note: Optional[str] = None,
+            ) -> None:
+                self.action_type = action_type
+                self.ticket_id = ticket_id
+                self.value = value
+                self.note = note
+
+            @classmethod
+            def model_validate(cls, payload: dict[str, Any]) -> "SupportTriageAction":
+                return cls(
+                    action_type=str(payload.get("action_type", "noop")),
+                    ticket_id=payload.get("ticket_id"),
+                    value=payload.get("value"),
+                    note=payload.get("note"),
+                )
+
+        class MyRealWorldEnv:  # type: ignore[no-redef]
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                raise RuntimeError(f"Environment dependencies are unavailable: {IMPORT_ERROR}")
 
 try:
     from my_env_v4 import MyEnvV4Action, MyEnvV4Env
@@ -53,7 +86,7 @@ except Exception:
 
 
 ENV_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
-IMAGE_NAME = os.getenv("IMAGE_NAME")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
 HF_TOKEN = os.getenv("HF_TOKEN")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 
@@ -69,9 +102,6 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 TOKEN = API_KEY or HF_TOKEN
 TASK_NAME = os.getenv("TASK_NAME", TASK_NAME)
 
-# Evaluator-required credentials for tracked proxy calls.
-PROXY_API_BASE_URL = os.environ["API_BASE_URL"]
-PROXY_API_KEY = os.environ["API_KEY"]
 MAX_STEPS = int(os.getenv("MAX_STEPS", "15"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "256"))
@@ -121,7 +151,15 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def get_llm_client() -> OpenAI:
-    return OpenAI(base_url=PROXY_API_BASE_URL, api_key=PROXY_API_KEY)
+    if not API_KEY:
+        raise RuntimeError("Missing HF_TOKEN (or API_KEY) for the configured OpenAI-compatible provider.")
+    return OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+
+def get_env_client() -> Any:
+    if LOCAL_IMAGE_NAME:
+        return MyRealWorldEnv.from_docker_image(LOCAL_IMAGE_NAME)
+    return MyRealWorldEnv(base_url=ENV_URL)
 
 
 def _build_prompt(obs: Any, step: int, history: List[str]) -> str:
@@ -219,51 +257,53 @@ def compute_score(final_task_score: float, rewards: List[float]) -> float:
 
 
 def run_episode(task_name: str) -> None:
-    client = get_llm_client()
-    model_name = _resolve_working_model(client)
-
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
     success = False
     history: List[str] = []
     emitted_step = False
+    model_name = MODEL_NAME
+    env: Any = None
 
     log_start(task=task_name, env_name=BENCHMARK, model=model_name)
 
     try:
-        with MyRealWorldEnv(base_url=ENV_URL).sync() as env:
-            result = env.reset()
-            obs = result.observation
+        client = get_llm_client()
+        model_name = _resolve_working_model(client)
+        env_client = get_env_client()
+        env = env_client.sync()
+        result = env.reset()
+        obs = result.observation
 
-            while not result.done and steps_taken < MAX_STEPS:
-                step = steps_taken + 1
-                action = _choose_action(client, model_name, obs, step, history)
-                action_str = _action_to_log(action)
+        while not result.done and steps_taken < MAX_STEPS:
+            step = steps_taken + 1
+            action = _choose_action(client, model_name, obs, step, history)
+            action_str = _action_to_log(action)
 
-                error: Optional[str] = None
-                try:
-                    result = env.step(action)
-                    obs = result.observation
-                    reward = float(result.reward or 0.0)
-                    done = bool(result.done)
-                except Exception as exc:
-                    reward = 0.0
-                    done = True
-                    error = str(exc)
+            error: Optional[str] = None
+            try:
+                result = env.step(action)
+                obs = result.observation
+                reward = float(result.reward or 0.0)
+                done = bool(result.done)
+            except Exception as exc:
+                reward = 0.0
+                done = True
+                error = str(exc)
 
-                rewards.append(reward)
-                steps_taken = step
-                emitted_step = True
-                log_step(step=step, action=action_str, reward=reward, done=done, error=error)
-                history.append(f"step={step} action={action_str} reward={reward:.2f}")
+            rewards.append(reward)
+            steps_taken = step
+            emitted_step = True
+            log_step(step=step, action=action_str, reward=reward, done=done, error=error)
+            history.append(f"step={step} action={action_str} reward={reward:.2f}")
 
-                if done:
-                    break
+            if done:
+                break
 
-            task_score = float(getattr(obs, "task_score", 0.0)) if "obs" in locals() else 0.0
-            score = compute_score(task_score, rewards)
-            success = bool(score >= SUCCESS_SCORE_THRESHOLD)
+        task_score = float(getattr(obs, "task_score", 0.0)) if "obs" in locals() else 0.0
+        score = compute_score(task_score, rewards)
+        success = bool(score >= SUCCESS_SCORE_THRESHOLD)
     except Exception as exc:
         print(f"[DEBUG] Episode error: {exc}", file=sys.stderr, flush=True)
         if not emitted_step:
@@ -271,11 +311,20 @@ def run_episode(task_name: str) -> None:
             rewards.append(0.0)
             log_step(step=1, action="noop", reward=0.0, done=True, error=str(exc))
     finally:
+        if env is not None:
+            try:
+                env.close()
+            except Exception as exc:
+                print(f"[DEBUG] env.close() error: {exc}", file=sys.stderr, flush=True)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 
-if __name__ == "__main__":
+def main() -> None:
     parser = argparse.ArgumentParser(description="Support triage inference")
     parser.add_argument("--task", type=str, default=TASK_NAME)
     args = parser.parse_args()
     run_episode(task_name=args.task)
+
+
+if __name__ == "__main__":
+    main()

@@ -20,14 +20,13 @@ def _package_module_name() -> str:
 
 def _run_inference_check() -> Dict[str, Any]:
     root = _project_root()
-    module_name = f"{_package_module_name()}.inference"
 
     # Keep ENV_BASE_URL fallback predictable for local validation.
     env = os.environ.copy()
     env.setdefault("ENV_BASE_URL", "http://localhost:8000")
 
     proc = subprocess.run(
-        [sys.executable, "-m", module_name],
+        [sys.executable, "inference.py"],
         cwd=str(root),
         env=env,
         capture_output=True,
