@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Literal
 
+try:
+    from .graders import grade_task_state
+except ImportError:
+    from server.graders import grade_task_state
+
 
 Difficulty = Literal["easy", "medium", "hard"]
 TicketState = Dict[str, object]
@@ -19,55 +24,8 @@ class TaskDefinition:
     initial_tickets: List[TicketState]
     grader: Callable[[Dict[str, TicketState]], float]
 
-
-def _ticket_score(ticket: TicketState, expected: Dict[str, object], weight: float) -> float:
-    if all(ticket.get(k) == v for k, v in expected.items()):
-        return weight
-    return 0.0
-
-
-def grade_easy(tickets: Dict[str, TicketState]) -> float:
-    t1 = tickets["E-1001"]
-    score = 0.0
-    score += _ticket_score(t1, {"priority": "urgent"}, 0.35)
-    score += _ticket_score(t1, {"assigned_queue": "billing"}, 0.25)
-    score += _ticket_score(t1, {"response_template": "refund_ack"}, 0.25)
-    score += _ticket_score(t1, {"status": "pending"}, 0.15)
-    return min(1.0, score)
-
-
-def grade_medium(tickets: Dict[str, TicketState]) -> float:
-    t1 = tickets["M-2101"]
-    t2 = tickets["M-2102"]
-    t3 = tickets["M-2103"]
-
-    score = 0.0
-    score += _ticket_score(t2, {"priority": "urgent"}, 0.2)
-    score += _ticket_score(t2, {"assigned_queue": "technical_incident"}, 0.2)
-    score += _ticket_score(t2, {"escalated": True}, 0.2)
-    score += _ticket_score(t1, {"response_template": "password_reset"}, 0.15)
-    score += _ticket_score(t1, {"priority": "normal"}, 0.1)
-    score += _ticket_score(t3, {"status": "closed", "resolution_code": "spam"}, 0.15)
-    return min(1.0, score)
-
-
-def grade_hard(tickets: Dict[str, TicketState]) -> float:
-    a1 = tickets["H-3001"]
-    a2 = tickets["H-3002"]
-    a3 = tickets["H-3003"]
-    a5 = tickets["H-3005"]
-
-    score = 0.0
-    score += _ticket_score(a1, {"priority": "urgent"}, 0.15)
-    score += _ticket_score(a1, {"assigned_queue": "security"}, 0.15)
-    score += _ticket_score(a1, {"escalated": True}, 0.2)
-    score += _ticket_score(a2, {"priority": "high"}, 0.1)
-    score += _ticket_score(a2, {"assigned_queue": "logistics"}, 0.1)
-    score += _ticket_score(a2, {"response_template": "shipping_delay"}, 0.1)
-    score += _ticket_score(a3, {"assigned_queue": "billing"}, 0.05)
-    score += _ticket_score(a3, {"response_template": "invoice_copy"}, 0.05)
-    score += _ticket_score(a5, {"status": "closed", "resolution_code": "duplicate"}, 0.1)
-    return min(1.0, score)
+def _make_grader(task_id: str) -> Callable[[Dict[str, TicketState]], float]:
+    return lambda tickets: grade_task_state(task_id=task_id, tickets=tickets)
 
 
 TASKS: List[TaskDefinition] = [
@@ -103,7 +61,7 @@ TASKS: List[TaskDefinition] = [
                 "escalated": False,
             }
         ],
-        grader=grade_easy,
+        grader=_make_grader("support-easy-refund"),
     ),
     TaskDefinition(
         task_id="support-medium-mixed-triage",
@@ -166,7 +124,7 @@ TASKS: List[TaskDefinition] = [
                 "escalated": False,
             },
         ],
-        grader=grade_medium,
+        grader=_make_grader("support-medium-mixed-triage"),
     ),
     TaskDefinition(
         task_id="support-hard-queue-management",
@@ -260,6 +218,6 @@ TASKS: List[TaskDefinition] = [
                 "escalated": False,
             },
         ],
-        grader=grade_hard,
+        grader=_make_grader("support-hard-queue-management"),
     ),
 ]
