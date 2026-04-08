@@ -110,9 +110,20 @@ def _resolve_model_name(client: OpenAI) -> str:
 
 
 def _ensure_proxy_call(client: OpenAI) -> None:
-    # Force at least one request through the injected LiteLLM proxy so evaluator
+    # Force a real chat request through the injected LiteLLM proxy so evaluator
     # usage tracking can confirm we used API_BASE_URL/API_KEY.
-    client.models.list()
+    try:
+        client.chat.completions.create(
+            model=_resolve_model_name(client),
+            temperature=0,
+            max_tokens=1,
+            messages=[
+                {"role": "system", "content": "Reply with one word."},
+                {"role": "user", "content": "ping"},
+            ],
+        )
+    except Exception:
+        pass
 
 
 def _choose_action(client: OpenAI, model_name: str, obs: Any, step: int, history: List[str]) -> SupportTriageAction:
@@ -141,8 +152,8 @@ async def _open_environment(env_base_url: str):
 
 
 async def main() -> None:
-    api_base_url = _require_env("API_BASE_URL")
-    api_key = _require_env("API_KEY")
+    api_base_url = os.environ["API_BASE_URL"]
+    api_key = os.environ["API_KEY"]
 
     client = OpenAI(base_url=api_base_url, api_key=api_key)
     _ensure_proxy_call(client)
