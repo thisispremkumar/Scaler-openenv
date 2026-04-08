@@ -5,7 +5,8 @@ Runs one full episode against the support triage environment using an LLM
 to decide triage actions. Prints structured logs consumed by the evaluator.
 
 Required environment variables:
-    HF_TOKEN or API_KEY -- Hugging Face / API key
+    API_BASE_URL -- LiteLLM proxy base URL injected by evaluator
+    API_KEY      -- LiteLLM proxy key injected by evaluator
 
 Required-with-default environment variables:
     API_BASE_URL -- OpenAI-compatible endpoint
@@ -67,6 +68,10 @@ BENCHMARK = os.getenv("MY_REAL_WORLD_ENV_BENCHMARK", BENCHMARK)
 HF_TOKEN = os.getenv("HF_TOKEN")
 TOKEN = API_KEY or HF_TOKEN
 TASK_NAME = os.getenv("TASK_NAME", TASK_NAME)
+
+# Evaluator-required credentials for tracked proxy calls.
+PROXY_API_BASE_URL = os.environ["API_BASE_URL"]
+PROXY_API_KEY = os.environ["API_KEY"]
 MAX_STEPS = int(os.getenv("MAX_STEPS", "15"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "256"))
@@ -116,9 +121,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
 
 
 def get_llm_client() -> OpenAI:
-    if not TOKEN:
-        raise EnvironmentError("HF_TOKEN or API_KEY environment variable is required")
-    return OpenAI(base_url=API_BASE_URL, api_key=TOKEN)
+    return OpenAI(base_url=PROXY_API_BASE_URL, api_key=PROXY_API_KEY)
 
 
 def _build_prompt(obs: Any, step: int, history: List[str]) -> str:
