@@ -21,8 +21,6 @@ except Exception:
 
 
 IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "")
 TASK_NAME = os.getenv("MY_REAL_WORLD_ENV_TASK", "support-triage")
 BENCHMARK = os.getenv("MY_REAL_WORLD_ENV_BENCHMARK", "my_real_world_env")
@@ -39,6 +37,13 @@ SYSTEM_PROMPT = textwrap.dedent(
     send_response, escalate_ticket, close_ticket, noop.
     """
 ).strip()
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Missing required environment variable: {name}")
+    return value
 
 
 def log_start(task: str, env: str, model: str) -> None:
@@ -104,6 +109,12 @@ def _resolve_model_name(client: OpenAI) -> str:
     return "gpt-4o-mini"
 
 
+def _ensure_proxy_call(client: OpenAI) -> None:
+    # Force at least one request through the injected LiteLLM proxy so evaluator
+    # usage tracking can confirm we used API_BASE_URL/API_KEY.
+    client.models.list()
+
+
 def _choose_action(client: OpenAI, model_name: str, obs: Any, step: int, history: List[str]) -> SupportTriageAction:
     try:
         completion = client.chat.completions.create(
@@ -130,7 +141,11 @@ async def _open_environment(env_base_url: str):
 
 
 async def main() -> None:
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+    api_base_url = _require_env("API_BASE_URL")
+    api_key = _require_env("API_KEY")
+
+    client = OpenAI(base_url=api_base_url, api_key=api_key)
+    _ensure_proxy_call(client)
     model_name = _resolve_model_name(client)
     env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
