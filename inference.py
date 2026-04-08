@@ -164,7 +164,6 @@ async def main() -> None:
 
     client = OpenAI(base_url=api_base_url, api_key=api_key)
     model_name = _resolve_model_name(client)
-    await _ensure_proxy_call(client, model_name)
     env_base_url = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 
     env = None
@@ -183,6 +182,10 @@ async def main() -> None:
         task_name = obs.task_id or TASK_NAME
         log_start(task=task_name, env=BENCHMARK, model=model_name)
         started = True
+
+        # Enforce at least one successful proxy call after START so evaluator
+        # tracking cannot be bypassed by swallowed setup exceptions.
+        await _ensure_proxy_call(client, model_name)
 
         last_error: Optional[str] = None
         for step in range(1, MAX_STEPS + 1):
@@ -218,6 +221,8 @@ async def main() -> None:
         if not started:
             log_start(task=task_name, env=BENCHMARK, model=model_name)
             started = True
+        else:
+            raise
     finally:
         if env is not None:
             try:
