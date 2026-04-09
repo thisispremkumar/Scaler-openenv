@@ -14,7 +14,7 @@ try:
         SupportTriageReward,
         TicketSnapshot,
     )
-    from .tasks import TASKS, TaskDefinition
+    from .tasks import TASKS, TASKS_BY_ID, TaskDefinition
 except ImportError:
     from models import (
         MyRealWorldAction,
@@ -22,7 +22,7 @@ except ImportError:
         SupportTriageReward,
         TicketSnapshot,
     )
-    from server.tasks import TASKS, TaskDefinition
+    from server.tasks import TASKS, TASKS_BY_ID, TaskDefinition
 
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
@@ -54,6 +54,7 @@ class MyRealWorldEnvironment(Environment):
     """Customer support triage simulation with deterministic tasks and graders."""
 
     SUPPORTS_CONCURRENT_SESSIONS: bool = True
+    _global_task_cursor: int = 0
 
     def __init__(self):
         self._state = State(episode_id=str(uuid4()), step_count=0)
@@ -71,8 +72,16 @@ class MyRealWorldEnvironment(Environment):
         episode_id: Optional[str] = None,
         **kwargs,
     ) -> MyRealWorldObservation:
-        del seed, kwargs
-        self._task = TASKS[self._reset_count % len(TASKS)]
+        requested_task_id = (
+            kwargs.get("task_id")
+            or kwargs.get("task")
+            or kwargs.get("task_name")
+        )
+        self._task = self._select_task(
+            requested_task_id=requested_task_id,
+            seed=seed,
+            episode_id=episode_id,
+        )
         self._reset_count += 1
         self._done = False
         self._consecutive_noops = 0
@@ -86,6 +95,28 @@ class MyRealWorldEnvironment(Environment):
             reward=SupportTriageReward(total=0.0),
             feedback="Episode reset.",
         )
+
+    def _select_task(
+        self,
+        requested_task_id: Optional[str],
+        seed: Optional[int],
+        episode_id: Optional[str],
+    ) -> TaskDefinition:
+        if requested_task_id:
+            normalized = str(requested_task_id).strip()
+            if normalized in TASKS_BY_ID:
+                return TASKS_BY_ID[normalized]
+
+        if seed is not None:
+            return TASKS[int(seed) % len(TASKS)]
+
+        if episode_id:
+            index = sum(ord(ch) for ch in str(episode_id)) % len(TASKS)
+            return TASKS[index]
+
+        index = MyRealWorldEnvironment._global_task_cursor % len(TASKS)
+        MyRealWorldEnvironment._global_task_cursor += 1
+        return TASKS[index]
 
     def step(
         self,

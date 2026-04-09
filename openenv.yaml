@@ -1,7 +1,70 @@
+name: Support Triage OpenEnv
+description: >
+  An OpenEnv-compliant customer support triage environment. Agents inspect a
+  structured inbox, then prioritize, route, escalate, respond to, and close
+  tickets under SLA pressure using deterministic graders and dense rewards.
+version: "1.0.0"
+author: premmokara
+
 spec_version: 1
-name: support_triage_env
+name_slug: support_triage_env
 type: space
 runtime: fastapi
 app: server.app:app
 port: 7860
 
+observation_space:
+  type: structured
+  description: >
+    Structured support inbox state including task metadata, per-ticket
+    snapshots, step budget, current task score, progress score, and reward
+    breakdown.
+
+action_space:
+  type: structured
+  description: >
+    Ticket operations such as viewing a ticket, setting priority, routing to a
+    queue, tagging, sending a response template, escalating, closing, or noop.
+
+endpoints:
+  health: /health
+  reset: /reset
+  step: /step
+  state: /state
+  schema: /schema
+
+tasks:
+  - id: support-easy-refund
+    difficulty: easy
+    steps: 8
+    description: >
+      Handle a single VIP billing refund request by marking it urgent, routing
+      it to billing, sending the refund acknowledgement template, and leaving
+      it pending for back-office follow-up.
+
+  - id: support-medium-mixed-triage
+    difficulty: medium
+    steps: 12
+    description: >
+      Triage a mixed inbox containing an account issue, an outage incident, and
+      spam. The agent must escalate and route the outage correctly, handle the
+      account ticket safely, and close the spam ticket.
+
+  - id: support-hard-queue-management
+    difficulty: hard
+    steps: 15
+    description: >
+      Coordinate a five-ticket queue under pressure, including account takeover
+      escalation, shipping delay communication, billing routing, and duplicate
+      closure without unsafe actions.
+
+scoring:
+  reward_range: [0.0, 1.0]
+  score_range_open_interval: true
+  success_threshold: 0.1
+  score_formula: task_score_clamped_to_open_interval
+
+constraints:
+  max_runtime_seconds: 1200
+  max_memory_gb: 8
+  max_vcpu: 2

@@ -287,3 +287,6 @@ TASKS: List[TaskDefinition] = [
         grader=_make_grader("support-hard-queue-management"),
     ),
 ]
+
+TASKS_BY_ID: Dict[str, TaskDefinition] = {task.task_id: task for task in TASKS}
+TASK_IDS: List[str] = [task.task_id for task in TASKS]
