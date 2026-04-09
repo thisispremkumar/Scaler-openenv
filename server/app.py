@@ -29,6 +29,7 @@ Usage:
 """
 
 import os
+from typing import Any, Dict, List
 from pathlib import Path
 
 # Load environment variables from .env file if it exists
@@ -65,6 +66,54 @@ app = create_app(
     env_name="support_triage_env",
     max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
 )
+
+
+@app.get("/tasks")
+async def get_tasks() -> List[Dict[str, Any]]:
+    return [
+        {
+            "id": "cargo_food",
+            "task_id": "cargo_food",
+            "name": "cargo_food",
+            "description": "Complete bilateral food-compliance screening for an agricultural shipment.",
+            "objective": "Extract shipment basics, ask for missing details only when needed, and select the exact food import/export compliance package.",
+            "difficulty": "easy",
+            "grader": "programmatic",
+            "grader_type": "programmatic",
+            "grader_config": {},
+            "has_grader": True,
+            "score_range": [0.01, 0.99],
+            "pass_score": 0.70,
+        },
+        {
+            "id": "cargo_electronics",
+            "task_id": "cargo_electronics",
+            "name": "cargo_electronics",
+            "description": "Resolve export-control obligations for a dual-use electronics shipment.",
+            "objective": "Identify the correct origin/destination details and choose the matching electronics laws, regulators, and documents.",
+            "difficulty": "medium",
+            "grader": "programmatic",
+            "grader_type": "programmatic",
+            "grader_config": {},
+            "has_grader": True,
+            "score_range": [0.01, 0.99],
+            "pass_score": 0.78,
+        },
+        {
+            "id": "cargo_pharma",
+            "task_id": "cargo_pharma",
+            "name": "cargo_pharma",
+            "description": "Validate pharmaceutical API compliance across origin and destination jurisdictions.",
+            "objective": "Handle stricter pharma extraction and select the exact controlled-substance paperwork without hallucinating extra laws.",
+            "difficulty": "hard",
+            "grader": "programmatic",
+            "grader_type": "programmatic",
+            "grader_config": {},
+            "has_grader": True,
+            "score_range": [0.01, 0.99],
+            "pass_score": 0.85,
+        },
+    ]
 
 
 def main() -> None:
