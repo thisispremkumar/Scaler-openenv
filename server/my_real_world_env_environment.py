@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from openenv.core.env_server.interfaces import Environment
+from openenv.core.env_server import Environment
 from openenv.core.env_server.types import State
 
 try:
