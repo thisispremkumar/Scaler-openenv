@@ -106,7 +106,8 @@ MAX_STEPS = int(os.getenv("MAX_STEPS", "15"))
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "256"))
 SUCCESS_SCORE_THRESHOLD = float(os.getenv("SUCCESS_SCORE_THRESHOLD", "0.1"))
-SCORE_EPS = 1e-6
+SCORE_FLOOR = 0.01
+SCORE_CEIL = 0.99
 
 VALID_ACTIONS = {
     "view_ticket",
@@ -253,7 +254,7 @@ def _action_to_log(action: SupportTriageAction) -> str:
 def compute_score(final_task_score: float, rewards: List[float]) -> float:
     del final_task_score
     score = sum(rewards) / len(rewards) if rewards else 0.0
-    return max(SCORE_EPS, min(score, 1.0 - SCORE_EPS))
+    return max(SCORE_FLOOR, min(score, SCORE_CEIL))
 
 
 def run_episode(task_name: str) -> None:
@@ -310,6 +311,7 @@ def run_episode(task_name: str) -> None:
             steps_taken = 1
             rewards.append(0.0)
             log_step(step=1, action="noop", reward=0.0, done=True, error=str(exc))
+        score = max(SCORE_FLOOR, min(score, SCORE_CEIL))
     finally:
         if env is not None:
             try:

@@ -46,8 +46,8 @@ class SupportTriageObservation(Observation):
     focused_ticket_id: Optional[str] = None
     step_count: int = 0
     max_steps: int = 0
-    progress_score: float = Field(default=0.0, ge=0.0, le=1.0)
-    task_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    progress_score: float = Field(default=0.01, ge=0.01, le=0.99)
+    task_score: float = Field(default=0.01, ge=0.01, le=0.99)
     last_action_feedback: str = ""
     reward_breakdown: SupportTriageReward = Field(default_factory=SupportTriageReward)
 

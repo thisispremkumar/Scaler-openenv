@@ -59,7 +59,7 @@ tasks:
       closure without unsafe actions.
 
 scoring:
-  reward_range: [0.0, 1.0]
+  reward_range: [0.01, 0.99]
   score_range_open_interval: true
   success_threshold: 0.1
   score_formula: task_score_clamped_to_open_interval
