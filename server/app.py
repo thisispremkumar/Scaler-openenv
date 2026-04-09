@@ -28,7 +28,6 @@ Usage:
     python -m server.app
 """
 
-import os
 from typing import Any, Dict, List
 from pathlib import Path
 
@@ -52,9 +51,11 @@ except Exception as e:  # pragma: no cover
 try:
     from ..models import MyRealWorldAction, MyRealWorldObservation
     from .my_real_world_env_environment import MyRealWorldEnvironment
+    from .tasks import TASKS, TaskDefinition
 except (ModuleNotFoundError, ImportError):
     from models import MyRealWorldAction, MyRealWorldObservation
     from server.my_real_world_env_environment import MyRealWorldEnvironment
+    from server.tasks import TASKS, TaskDefinition
 
 
 
@@ -67,53 +68,30 @@ app = create_app(
     max_concurrent_envs=1,  # increase this number to allow more concurrent WebSocket sessions
 )
 
+TASK_SCORE_RANGE = [0.01, 0.99]
+TASK_PASS_SCORE = 0.10
+
+
+def _task_to_payload(task: TaskDefinition) -> Dict[str, Any]:
+    return {
+        "id": task.task_id,
+        "task_id": task.task_id,
+        "name": task.title,
+        "description": task.objective,
+        "objective": task.objective,
+        "difficulty": task.difficulty,
+        "grader": "programmatic",
+        "grader_type": "programmatic",
+        "grader_config": {},
+        "has_grader": True,
+        "score_range": TASK_SCORE_RANGE,
+        "pass_score": TASK_PASS_SCORE,
+    }
+
 
 @app.get("/tasks")
 async def get_tasks() -> List[Dict[str, Any]]:
-    return [
-        {
-            "id": "cargo_food",
-            "task_id": "cargo_food",
-            "name": "cargo_food",
-            "description": "Complete bilateral food-compliance screening for an agricultural shipment.",
-            "objective": "Extract shipment basics, ask for missing details only when needed, and select the exact food import/export compliance package.",
-            "difficulty": "easy",
-            "grader": "programmatic",
-            "grader_type": "programmatic",
-            "grader_config": {},
-            "has_grader": True,
-            "score_range": [0.01, 0.99],
-            "pass_score": 0.70,
-        },
-        {
-            "id": "cargo_electronics",
-            "task_id": "cargo_electronics",
-            "name": "cargo_electronics",
-            "description": "Resolve export-control obligations for a dual-use electronics shipment.",
-            "objective": "Identify the correct origin/destination details and choose the matching electronics laws, regulators, and documents.",
-            "difficulty": "medium",
-            "grader": "programmatic",
-            "grader_type": "programmatic",
-            "grader_config": {},
-            "has_grader": True,
-            "score_range": [0.01, 0.99],
-            "pass_score": 0.78,
-        },
-        {
-            "id": "cargo_pharma",
-            "task_id": "cargo_pharma",
-            "name": "cargo_pharma",
-            "description": "Validate pharmaceutical API compliance across origin and destination jurisdictions.",
-            "objective": "Handle stricter pharma extraction and select the exact controlled-substance paperwork without hallucinating extra laws.",
-            "difficulty": "hard",
-            "grader": "programmatic",
-            "grader_type": "programmatic",
-            "grader_config": {},
-            "has_grader": True,
-            "score_range": [0.01, 0.99],
-            "pass_score": 0.85,
-        },
-    ]
+    return [_task_to_payload(task) for task in TASKS]
 
 
 def main() -> None:
